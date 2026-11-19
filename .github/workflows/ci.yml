@@ -1,8 +1,12 @@
 name: CI
+# PRs only (plus manual runs): a push to a PR branch already triggers pull_request, so a push trigger doubled
+# every run. macOS runners are scarce; a newer push to the same PR cancels the run it supersedes.
 on:
   pull_request:
-  push:
-    branches-ignore: [main, master]
+  workflow_dispatch:
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 jobs:
   swift:
     runs-on: macos-15
@@ -11,7 +15,8 @@ jobs:
       - run: swift test
       - run: swift build -c release
   local-openlive:
-    runs-on: macos-15
+    # Type-check, unit tests and build only; nothing here needs macOS.
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4
