@@ -1,10 +1,11 @@
 import { randomBytes } from "node:crypto";
 import { spawn } from "node:child_process";
 import { inventoryFile, stateDir } from "./state-dir.mjs";
+import { brainFromEnv } from "./brain-env.mjs";
 import { readFile } from "node:fs/promises";
 
 const child = spawn("node_modules/.bin/electron", ["dist/main.mjs"], { stdio: ["pipe", "pipe", "inherit"] });
-child.stdin.write(`${JSON.stringify({ token: randomBytes(32).toString("base64url"), stateDir })}\n`);
+child.stdin.write(`${JSON.stringify({ token: randomBytes(32).toString("base64url"), stateDir, brain: brainFromEnv() })}\n`);
 let output = "";
 try {
   for await (const chunk of child.stdout) {
