@@ -5,6 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
+import { brainFromEnv } from "../scripts/brain-env.mjs";
 import { defaultStateDir } from "./state.js";
 
 const args = process.argv.slice(2);
@@ -16,7 +17,8 @@ const electron = resolve(value("--electron") ?? "node_modules/.bin/electron");
 const main = join(here, "main.mjs");
 const token = randomBytes(32).toString("base64url");
 const child = spawn(electron, [main], { stdio: ["pipe", "pipe", "inherit"] });
-child.stdin.write(`${JSON.stringify({ token, stateDir: defaultStateDir(), brain: {
+// Same brain settings as setup and check, so the demo exercises the brain the plugin will use.
+child.stdin.write(`${JSON.stringify({ token, stateDir: defaultStateDir(), brain: brainFromEnv() ?? {
   kind: "local", baseURL: "http://127.0.0.1:11434/v1", model: "qwen3.5:4b", protocol: "openai-chat",
 } })}\n`);
 

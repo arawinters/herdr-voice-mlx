@@ -174,4 +174,9 @@ commit to first non-silent returned PCM. That single run proves routing, not a l
 is in [`local-openlive-results.json`](local-openlive-results.json). Ignored WAV and JSONL artifacts and raw tool output stay
 outside Git.
 
+On Apple M5 Max with Splash 1.7.0 serving Qwen3.6-35B-A3B (`UD-Q4_K_M`) as the brain, eight
+`local-openlive-bench` runs each made one real `list_agents` call and measured 460–711 ms (median 518 ms) on the same
+proxy. Warm first-tool events from Splash alone were 53–129 ms. Three of eight runs were under 500 ms, so the target
+is still **unmet** as a distribution.
+
 Vision is unsupported in the native local voice path because Herdr has no permission contract for capturing frames.
