@@ -107,3 +107,25 @@ extension HerdrTools {
         return nil
     }
 }
+
+/// Decides whether a tool call comes from the developer's voice or from the model acting on text it read.
+/// A call is user-initiated only when the developer started speaking after the last report. A report is a
+/// background watch settling or a tool result carrying terminal text (`read_pane`, `read_agent`, …), since either
+/// can put injected instructions in front of the model. Speech onsets come from the mic, so a report can't fake one.
+public struct Provenance {
+    private var lastSpeechStart = Date.distantPast
+    private var lastReport = Date.distantPast
+
+    public init() {}
+
+    public var userInitiated: Bool { lastSpeechStart > lastReport }
+
+    public mutating func speechStarted(at time: Date = Date()) { lastSpeechStart = time }
+
+    public mutating func reported(at time: Date = Date()) { lastReport = time }
+
+    /// Call when a tool result is about to reach the model.
+    public mutating func toolResult(_ output: String, at time: Date = Date()) {
+        if HerdrTools.carriesUntrustedOutput(output) { lastReport = time }
+    }
+}
