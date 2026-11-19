@@ -68,6 +68,10 @@ Useful checks:
 ./scripts/local-openlive-bench 5             # raw JSONL first-PCM proxy runs and WAV artifacts
 ```
 
+With `HERDR_VOICE_LOCAL_TRACE=1`, the helper writes stage marks to stderr (speech-to-text, brain request, first tool or
+text event, each synthesis) and the demo adds `timelineMs`, every mark in ms from the input commit, to its JSON line.
+The marks hold stage names, times and sizes only, never text, audio or tool output.
+
 The demo replays the exact authenticated LocalWire transport without opening a second microphone. It feeds a public
 PCM16 WAV generated from the public phrase "List my Herdr agents," lets Swift's exported schemas drive Qwen, and
 requires the harmless real Swift `list_agents` call. Raw agent names and output remain in memory and are never printed or committed. The generated WAV and JSONL live
@@ -178,5 +182,21 @@ On Apple M5 Max with Splash 1.7.0 serving Qwen3.6-35B-A3B (`UD-Q4_K_M`) as the b
 `local-openlive-bench` runs each made one real `list_agents` call and measured 460–711 ms (median 518 ms) on the same
 proxy. Warm first-tool events from Splash alone were 53–129 ms. Three of eight runs were under 500 ms, so the target
 is still **unmet** as a distribution.
+
+A traced run of eight on the same setup (median 531 ms) splits like this:
+
+| Stage | Median ms |
+|---|---|
+| Whisper tiny.en speech-to-text | 145 |
+| Splash, to the first tool call | 52 |
+| Splash, rest of the tool-call stream | 16 |
+| Swift `list_agents` | 14 |
+| Splash, second request to the first reply text | 26 |
+| Waiting for the first sentence to synthesize | 17 |
+| Kokoro, first sentence (whole sentence before any audio) | 204 |
+| Handoffs between stages | about 57 |
+
+Speech is about two thirds of the time and the brain about a fifth. The proxy starts at the input commit, so it leaves
+out the 560 ms of silence that ends a turn.
 
 Vision is unsupported in the native local voice path because Herdr has no permission contract for capturing frames.

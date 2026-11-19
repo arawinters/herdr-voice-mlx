@@ -9,6 +9,7 @@ import { validateManifest } from "./manifest.js";
 import { authorizeUpgrade } from "./security.js";
 import { BridgeSession, type WireMessage } from "./session.js";
 import { migrateLegacyState, PARTITION, statePaths } from "./state.js";
+import { timed, timedStream, traceWriter } from "./trace.js";
 
 type BootConfig = { token: string; stateDir: string; setup?: boolean; brain?: BrainConfig };
 
@@ -72,11 +73,17 @@ if (boot.setup) {
   });
   websocket.on("connection", (client) => {
     active = client;
+    const transcribe = (audio: Float32Array, epoch: number) => inference.stt(audio, epoch);
+    const synthesize = (text: string, voice: string, epoch: number, generation: number) =>
+      inference.tts(text, voice, epoch, generation);
+    const stream = (request: Parameters<typeof streamProvider>[2], signal: AbortSignal) =>
+      streamProvider(providerInfo(brain), brain.apiKey, request, signal);
+    const mark = process.env.HERDR_VOICE_LOCAL_TRACE === "1" ? traceWriter((line) => process.stderr.write(line)) : undefined;
     const bridge = new BridgeSession({
-      transcribe: (audio, epoch) => inference.stt(audio, epoch),
-      synthesize: (text, voice, epoch, generation) => inference.tts(text, voice, epoch, generation),
+      transcribe: mark ? timed("stt", mark, transcribe, (audio) => ({ audioMs: audio.length / 16 })) : transcribe,
+      synthesize: mark ? timed("tts", mark, synthesize, (text) => ({ chars: text.length })) : synthesize,
       cancelSynthesis: (epoch, generation) => inference.cancelTTS(epoch, generation),
-      stream: (request, signal) => streamProvider(providerInfo(brain), brain.apiKey, request, signal),
+      stream: mark ? timedStream(mark, stream) : stream,
       emit: (event) => { if (client.readyState === client.OPEN) client.send(JSON.stringify(event)); },
       now: Date.now,
       validateManifest,

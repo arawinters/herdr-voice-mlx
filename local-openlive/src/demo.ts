@@ -7,6 +7,7 @@ import { fileURLToPath } from "node:url";
 import WebSocket from "ws";
 import { brainFromEnv } from "../scripts/brain-env.mjs";
 import { defaultStateDir } from "./state.js";
+import { wallClock } from "./trace.js";
 
 const args = process.argv.slice(2);
 const here = dirname(fileURLToPath(import.meta.url));
@@ -16,9 +17,14 @@ const herdr = resolve(value("--herdr") ?? "../.build/release/herdr-voice");
 const electron = resolve(value("--electron") ?? "node_modules/.bin/electron");
 const main = join(here, "main.mjs");
 const token = randomBytes(32).toString("base64url");
-const child = spawn(electron, [main], { stdio: ["pipe", "pipe", "inherit"] });
+// HERDR_VOICE_LOCAL_TRACE=1 adds a per-stage timeline: the helper's trace lines plus the demo's own marks.
+const tracing = process.env.HERDR_VOICE_LOCAL_TRACE === "1";
+const timeline: { stage: string; at: number }[] = [];
+const mark = (stage: string) => { if (tracing) timeline.push({ stage, at: wallClock() }); };
+const child = spawn(electron, [main], { stdio: ["pipe", "pipe", tracing ? "pipe" : "inherit"] });
+if (tracing) collectTrace(child.stderr!, timeline);
 // Same brain settings as setup and check, so the demo exercises the brain the plugin will use.
-child.stdin.write(`${JSON.stringify({ token, stateDir: defaultStateDir(), brain: brainFromEnv() ?? {
+child.stdin!.write(`${JSON.stringify({ token, stateDir: defaultStateDir(), brain: brainFromEnv() ?? {
   kind: "local", baseURL: "http://127.0.0.1:11434/v1", model: "qwen3.5:4b", protocol: "openai-chat",
 } })}\n`);
 
@@ -42,8 +48,10 @@ try {
     await new Promise((resolve) => setTimeout(resolve, 20));
   }
   const commitAt = performance.now();
+  mark("demo.commit");
   socket.send(JSON.stringify({ type: "input.commit", epoch, utterance_id: utterance }));
   await waitEvent(events, "input.transcription.completed", 60_000);
+  mark("demo.transcript");
   socket.send(JSON.stringify({ type: "response.create", epoch }));
 
   const outputChunks: Buffer[] = [];
@@ -56,13 +64,18 @@ try {
     if (event.type === "response.audio.delta") {
       const chunk = Buffer.from(event.delta, "base64");
       outputChunks.push(chunk);
-      if (firstPCMAt == null && hasNonSilentPCM(chunk)) firstPCMAt = performance.now();
+      if (firstPCMAt == null && hasNonSilentPCM(chunk)) {
+        firstPCMAt = performance.now();
+        mark("demo.first_pcm");
+      }
     }
     if (event.type === "response.function_call_arguments.done") {
       if (event.name !== "list_agents") throw new Error(`tool smoke refuses unexpected tool ${String(event.name)}`);
       if (toolCalls !== 0) throw new Error("tool smoke requires exactly one list_agents call");
       toolCalls += 1;
+      mark("demo.tool.start");
       const result = spawnSync(herdr, ["tool", "list_agents", event.arguments || "{}"], { encoding: "utf8", maxBuffer: 2_000_000 });
+      mark("demo.tool.done");
       if (result.status !== 0) throw new Error("real Swift list_agents tool smoke failed");
       try {
         if (!Array.isArray(JSON.parse(result.stdout))) throw new Error();
@@ -97,11 +110,39 @@ try {
     physicalSpeakerOnset: "not measured",
     tool: { name: "list_agents", calls: toolCalls, executor: "real Swift HerdrTools" },
     targetUnder500ms: false,
+    ...(tracing ? { timelineMs: relativeTimeline(timeline) } : {}),
   })}\n`);
   socket.close();
 } finally {
-  child.stdin.end();
+  child.stdin!.end();
   setTimeout(() => { if (!child.killed) child.kill("SIGTERM"); }, 5_000).unref();
+}
+
+// Trace lines carry stage marks only; anything else on the helper's stderr is passed through.
+function collectTrace(stream: NodeJS.ReadableStream, into: { stage: string; at: number }[]): void {
+  let buffer = "";
+  stream.on("data", (chunk) => {
+    buffer += chunk.toString();
+    let newline = buffer.indexOf("\n");
+    while (newline >= 0) {
+      const line = buffer.slice(0, newline);
+      buffer = buffer.slice(newline + 1);
+      let entry: any;
+      try { entry = JSON.parse(line); } catch { entry = undefined; }
+      if (entry?.type === "trace" && typeof entry.stage === "string" && typeof entry.at === "number") {
+        into.push({ stage: entry.stage, at: entry.at });
+      } else {
+        process.stderr.write(`${line}\n`);
+      }
+      newline = buffer.indexOf("\n");
+    }
+  });
+}
+
+function relativeTimeline(marks: { stage: string; at: number }[]): { stage: string; ms: number }[] {
+  const commit = marks.find((entry) => entry.stage === "demo.commit")?.at ?? 0;
+  return [...marks].sort((a, b) => a.at - b.at)
+    .map((entry) => ({ stage: entry.stage, ms: Math.round((entry.at - commit) * 10) / 10 }));
 }
 
 function value(flag: string): string | undefined {
