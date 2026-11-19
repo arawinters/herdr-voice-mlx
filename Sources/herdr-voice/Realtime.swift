@@ -34,8 +34,7 @@ final class Realtime {
         }
     }
     /// Tool calls made after an agent report but before the developer speaks again are not user-initiated.
-    private var lastSpeechStart = Date.distantPast
-    private var lastReport = Date.distantPast
+    private var provenance = Provenance()
     /// Agents currently being watched in the background.
     private(set) var busyAgents = Set<String>()
     /// Pane watches running in the background. Unlike busy agents they don't count as work: a watch can wait an
@@ -618,7 +617,7 @@ final class Realtime {
             micShared.withLock { $0.midTurn = false }
         case .speechStarted:
             speechOverlappedPlayback = audio.isSpeaking // before barge-in stops the playback below
-            lastSpeechStart = Date()
+            provenance.speechStarted()
             micShared.withLock { $0.midTurn = true }
             awaitingReplySince = nil
             // Barge-in: talking over the assistant cuts its audio; the server VAD handles the rest. The provider also
@@ -819,13 +818,15 @@ final class Realtime {
             log("   $ \(cmd)")   // the exact command the developer is being asked to approve
         }
         // Speech start comes from the mic via server VAD, so an injected report can't fake it.
-        let userInitiated = lastSpeechStart > lastReport
+        let userInitiated = provenance.userInitiated
         toolsRunning += 1
         let id = connection
         DispatchQueue.global().async {
             let outcome = HerdrTools.call(name, arguments: args, userInitiated: userInitiated)
             DispatchQueue.main.async {
                 self.toolsRunning -= 1
+                // Terminal text in the result counts as a report: what the model does next needs a spoken yes.
+                self.provenance.toolResult(outcome.output)
                 if let target = outcome.watch { self.watch(target) }
                 if let pane = outcome.paneWatch { self.watchPane(pane) }
                 // A result for a call from a session that has since closed has nowhere to go.
@@ -850,7 +851,7 @@ final class Realtime {
             DispatchQueue.main.async {
                 self.busyAgents.remove(target)
                 log("← \(target) settled")
-                self.lastReport = Date()
+                self.provenance.reported()
                 self.deliver("[herdr] " + report)
             }
         }
@@ -864,7 +865,7 @@ final class Realtime {
             DispatchQueue.main.async {
                 self.watchedPanes.remove(key)
                 log("← \(w.label) watch ended")
-                self.lastReport = Date()
+                self.provenance.reported()
                 self.deliver("[herdr] " + report)
             }
         }

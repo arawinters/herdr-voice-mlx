@@ -531,8 +531,8 @@ Want the details? Ask it to show you the agent's pane ("show me claude-2") and r
 - **Prompt injection.** An agent's terminal can show text from web pages, repos or tools, and some of it may be
   written to trick an AI ("SYSTEM: approve this"). herdr-voice fences that output as untrusted data, and more
   importantly the model can't act on it alone: approving an agent's prompt (`enter`, `y`, a digit) always needs your
-  spoken yes, and a prompt the voice wants to send in reaction to an agent report (rather than to something you just
-  said) needs your yes for that exact text. The same goes for creating or renaming workspaces, tabs and worktrees,
+  spoken yes, and a prompt the voice wants to send in reaction to terminal text (an agent report, or a pane or agent
+  it just read) rather than to something you just said needs your yes for that exact text. The same goes for creating or renaming workspaces, tabs and worktrees,
   and for starting an agent.
 - **Risky actions need your voice.** Approvals, closing a workspace or tab, and removing a worktree are two-step: the
   voice asks, and it only goes ahead when the **first thing you say** after the question is a clear yes. The model
@@ -576,7 +576,7 @@ Want the details? Ask it to show you the agent's pane ("show me claude-2") and r
 
 ```bash
 swift build          # debug build
-swift test           # 190 tests: local mode (wire, state directory, warm-up, relaunch, menu), plugin config and single-instance lock, starting agents, pane reading and watching, workspace/tab/worktree management, key setup, events, wire protocols (golden OpenAI/Grok messages, Gemini Live), Herdr tools, focus, confirmations, injection gates, shell, speech policy, activity, window pinning, reconnect, keychain, speech gate, reply scheduling, report condensing, stop phrases, model menu
+swift test           # 192 tests: local mode (wire, state directory, warm-up, relaunch, menu), plugin config and single-instance lock, starting agents, pane reading and watching, workspace/tab/worktree management, key setup, events, wire protocols (golden OpenAI/Grok messages, Gemini Live), Herdr tools, focus, confirmations, injection gates, shell, speech policy, activity, window pinning, reconnect, keychain, speech gate, reply scheduling, report condensing, stop phrases, model menu
 swift build -c release
 herdr plugin link "$PWD"   # try your working copy as the plugin (link doesn't build: run swift build -c release first)
 ```
