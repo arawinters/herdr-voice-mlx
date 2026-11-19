@@ -41,3 +41,13 @@ export function providerInfo(config: BrainConfig): ProviderInfo {
   return { id: "herdr-local-brain", name: brainLabel(config), protocol: config.protocol ?? "openai-chat",
     baseURL: config.baseURL, keyless: config.kind === "local", custom: config.kind === "custom" };
 }
+
+// The OpenAI-compatible model list (`GET {baseURL}/models`), served by Ollama, Splash and other local servers alike.
+export function modelsURL(baseURL: string): URL {
+  return new URL(baseURL.replace(/\/$/, "") + "/models");
+}
+
+export function listsModel(body: unknown, model: string): boolean {
+  const data = (body as { data?: unknown } | null)?.data;
+  return Array.isArray(data) && data.some((entry) => (entry as { id?: unknown } | null)?.id === model);
+}

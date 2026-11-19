@@ -9,7 +9,7 @@ speaker or tool privileges. The main process uses OpenLive's pinned `streamProvi
 ## Setup and run
 
 Local mode is a one-time setup from a source checkout. Until it has run, the orb's menu shows
-**Local OpenLive (not set up)**, greyed out. Prerequisites are macOS with WebGPU, Node 22 or later, pnpm 10 or later, Ollama with `qwen3.5:4b`, and Swift
+**Local OpenLive (not set up)**, greyed out. Prerequisites are macOS with WebGPU, Node 22 or later, pnpm 10 or later, Ollama with `qwen3.5:4b` (or another local brain, see [Brain settings](#brain-settings)), and Swift
 5.10 or later. `pnpm-lock.yaml` stays exact and is installed with `--frozen-lockfile`. Keep Ollama in local-only mode
 (`OLLAMA_NO_CLOUD=1`). Then run:
 
@@ -24,7 +24,7 @@ Setup clones `https://github.com/katipally/openlive.git` at exact commit
 `849173cd1c8c17a95d600b17b428c301722bf5df`, installs `pnpm-lock.yaml`, builds only the selected worker and harness
 source, and installs `qwen3.5:4b` through Ollama when absent. It runs real fp32 WebGPU STT and TTS probes plus an
 exact-model brain probe. The first run downloads the model files. `local-openlive-check` forces the renderer offline
-and repeats the inference probes. A missing asset, WebGPU failure, non-finite or silent TTS, Ollama failure, or schema
+and repeats the inference probes. A missing asset, WebGPU failure, non-finite or silent TTS, brain failure, or schema
 mismatch stops startup. The runtime has no CPU, cloud, ACP, or reduced-tool fallback.
 
 If the Electron child crashes mid-session, herdr-voice relaunches it and reconnects to its new port, with the
@@ -77,6 +77,18 @@ under ignored `bench-results/`.
 
 The default brain is keyless loopback Ollama at `http://127.0.0.1:11434/v1`, model `qwen3.5:4b`, OpenAI Chat
 Completions protocol, and `reasoning_effort: none`. Local mode rejects non-loopback URLs and cloud-named models.
+Any loopback server with OpenAI-compatible `GET /models` and `POST /chat/completions` works: startup checks that
+`/models` lists the exact model ID, then runs one inference probe. Setup and check read the same variables, so export
+them before running `local-openlive-setup` or `local-openlive-check`. Setup only requires Ollama when the URL is on
+port 11434.
+
+For example, [Splash](https://github.com/incoai/splash) serving Qwen3.6-35B-A3B:
+
+```bash
+splash serve --model unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
+export HERDR_VOICE_LOCAL_BRAIN_URL=http://127.0.0.1:8000/v1
+export HERDR_VOICE_LOCAL_BRAIN_MODEL=unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
+```
 
 | Variable | Default | Meaning |
 |---|---|---|

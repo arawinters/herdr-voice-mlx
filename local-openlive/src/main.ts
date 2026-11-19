@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 import { app, BrowserWindow, ipcMain, session as electronSession } from "electron";
 import { WebSocketServer, type WebSocket } from "ws";
 import { streamProvider } from "../vendor/harness/index.js";
-import { brainLabel, providerInfo, validateBrain, type BrainConfig } from "./brain.js";
+import { brainLabel, listsModel, modelsURL, providerInfo, validateBrain, type BrainConfig } from "./brain.js";
 import { validateManifest } from "./manifest.js";
 import { authorizeUpgrade } from "./security.js";
 import { BridgeSession, type WireMessage } from "./session.js";
@@ -163,13 +163,11 @@ class InferenceClient {
 
 async function preflightBrain(value: BrainConfig): Promise<Record<string, unknown>> {
   if (value.kind !== "local") return { mode: "hybrid", checked: false };
-  const base = new URL(value.baseURL);
-  const tagsURL = new URL("/api/tags", base);
-  const tagsResponse = await withTimeout(fetch(tagsURL), 15_000, "local Ollama model inventory");
-  if (!tagsResponse.ok) throw new Error(`local Ollama model inventory failed (${tagsResponse.status})`);
-  const tags = await tagsResponse.json() as { models?: Array<{ name?: string; model?: string }> };
-  const installed = tags.models?.some((model) => model.name === value.model || model.model === value.model) ?? false;
-  if (!installed) throw new Error(`local Ollama model ${value.model} is not installed`);
+  const modelsResponse = await withTimeout(fetch(modelsURL(value.baseURL)), 15_000, "local brain model inventory");
+  if (!modelsResponse.ok) throw new Error(`local brain model inventory failed (${modelsResponse.status})`);
+  if (!listsModel(await modelsResponse.json(), value.model)) {
+    throw new Error(`local brain model ${value.model} is not served at ${value.baseURL}`);
+  }
   if ((value.protocol ?? "openai-chat") !== "openai-chat") {
     return { mode: "local", model: value.model, installed: true, inference: "deferred-for-protocol" };
   }
@@ -179,10 +177,10 @@ async function preflightBrain(value: BrainConfig): Promise<Record<string, unknow
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ model: value.model, messages: [{ role: "user", content: "Reply OK." }],
                            max_tokens: 2, stream: false, reasoning_effort: value.reasoningEffort ?? "none" }),
-  }), 60_000, "local Ollama inference probe");
-  if (!completion.ok) throw new Error(`local Ollama inference probe failed (${completion.status})`);
+  }), 60_000, "local brain inference probe");
+  if (!completion.ok) throw new Error(`local brain inference probe failed (${completion.status})`);
   const body = await completion.json() as { choices?: unknown[] };
-  if (!Array.isArray(body.choices) || body.choices.length === 0) throw new Error("local Ollama inference probe returned no choice");
+  if (!Array.isArray(body.choices) || body.choices.length === 0) throw new Error("local brain inference probe returned no choice");
   return { mode: "local", model: value.model, installed: true, inference: "ok" };
 }
 
