@@ -15,13 +15,16 @@ const input = value("--input") ?? join(here, "../fixtures/list-my-herdr-agents.w
 const output = resolve(value("--output") ?? "bench-results/local-openlive-demo.wav");
 const herdr = resolve(value("--herdr") ?? "../.build/release/herdr-voice");
 const electron = resolve(value("--electron") ?? "node_modules/.bin/electron");
+// --helper replays the same transport against the native Swift helper (herdr-voice-local) instead of Electron.
+const helper = value("--helper");
 const main = join(here, "main.mjs");
 const token = randomBytes(32).toString("base64url");
 // HERDR_VOICE_LOCAL_TRACE=1 adds a per-stage timeline: the helper's trace lines plus the demo's own marks.
 const tracing = process.env.HERDR_VOICE_LOCAL_TRACE === "1";
 const timeline: { stage: string; at: number }[] = [];
 const mark = (stage: string) => { if (tracing) timeline.push({ stage, at: wallClock() }); };
-const child = spawn(electron, [main], { stdio: ["pipe", "pipe", tracing ? "pipe" : "inherit"] });
+const child = spawn(helper ? resolve(helper) : electron, helper ? [] : [main],
+                    { stdio: ["pipe", "pipe", tracing ? "pipe" : "inherit"] });
 if (tracing) collectTrace(child.stderr!, timeline);
 // Same brain settings as setup and check, so the demo exercises the brain the plugin will use.
 child.stdin!.write(`${JSON.stringify({ token, stateDir: defaultStateDir(), brain: brainFromEnv() ?? {
@@ -103,6 +106,7 @@ try {
   await writeFile(output, wav(outputPCM, 24_000));
   process.stdout.write(`${JSON.stringify({
     kind: "local-openlive-transport-replay",
+    helper: helper ? "native" : "electron",
     input: "public PCM WAV",
     output,
     commitToFirstNonSilentPCMProxyMs: firstPCMAt == null ? null : Math.round((firstPCMAt - commitAt) * 10) / 10,

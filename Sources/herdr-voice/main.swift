@@ -291,7 +291,7 @@ do {
     exit(1)
 }
 if provider == .local {
-    log("◌ loading Local OpenLive WebGPU speech models")
+    log(LocalRuntime.usesNativeHelper(env) ? "◌ loading native speech models (Parakeet, Kokoro)" : "◌ loading Local OpenLive WebGPU speech models")
     loadLocal { error in
         FileHandle.standardError.write(Data("Local OpenLive failed: \(error.localizedDescription)\nNo cloud fallback was selected.\n".utf8))
         exit(2)

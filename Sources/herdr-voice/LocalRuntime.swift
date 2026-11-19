@@ -28,11 +28,22 @@ final class LocalRuntime {
     func prepare(environment: [String: String] = ProcessInfo.processInfo.environment,
                  setup: Bool = false) throws -> Ready {
         let operation = beginPreparation()
-        let root = try Self.runtimeRoot(environment: environment)
-        let electron = root.appendingPathComponent("node_modules/.bin/electron").path
-        let main = root.appendingPathComponent("dist/main.mjs").path
-        guard FileManager.default.isExecutableFile(atPath: electron), FileManager.default.fileExists(atPath: main) else {
-            throw RuntimeError.missing("Local OpenLive is not built. Run scripts/local-openlive-setup first.")
+        let native = Self.usesNativeHelper(environment)
+        let executable: String
+        let arguments: [String]
+        if native {
+            executable = Self.nativeHelper().path
+            arguments = []
+            guard FileManager.default.isExecutableFile(atPath: executable) else {
+                throw RuntimeError.missing("The native local helper is not built. Run swift build -c release first.")
+            }
+        } else {
+            let root = try Self.runtimeRoot(environment: environment)
+            executable = root.appendingPathComponent("node_modules/.bin/electron").path
+            arguments = [root.appendingPathComponent("dist/main.mjs").path]
+            guard FileManager.default.isExecutableFile(atPath: executable), FileManager.default.fileExists(atPath: arguments[0]) else {
+                throw RuntimeError.missing("Local OpenLive is not built. Run scripts/local-openlive-setup first.")
+            }
         }
         let token = try randomToken()
         let state = LocalState.directory()
@@ -41,8 +52,8 @@ final class LocalRuntime {
         let bootData = try JSONSerialization.data(withJSONObject: boot)
 
         let child = Process()
-        child.executableURL = URL(fileURLWithPath: electron)
-        child.arguments = [main]
+        child.executableURL = URL(fileURLWithPath: executable)
+        child.arguments = arguments
         var childEnvironment: [String: String] = [:]
         for key in ["HOME", "TMPDIR", "PATH", "LANG", "LC_ALL", "USER", "LOGNAME", "XDG_CACHE_HOME"] {
             if let value = environment[key] { childEnvironment[key] = value }
@@ -112,7 +123,8 @@ final class LocalRuntime {
             stop(operation: operation, child: child) // an invalid readiness record must not leave the child running
             throw error
         }
-        if !setup {
+        // The native helper loads its models in offline mode, so missing files already stopped it before ready.
+        if !setup, !native {
             do { try verifyInventory(object, state: state) }
             catch {
                 stop(operation: operation, child: child)
@@ -135,11 +147,24 @@ final class LocalRuntime {
 
     /// Whether setup has run: Electron, the built main and the model inventory exist. Only stats files.
     static func isBuilt(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        if usesNativeHelper(environment) { return FileManager.default.isExecutableFile(atPath: nativeHelper().path) }
         guard let root = try? runtimeRoot(environment: environment) else { return false }
         let files = FileManager.default
         return files.isExecutableFile(atPath: root.appendingPathComponent("node_modules/.bin/electron").path)
             && files.fileExists(atPath: root.appendingPathComponent("dist/main.mjs").path)
             && files.fileExists(atPath: LocalState.inventory(in: LocalState.directory()).path)
+    }
+
+    /// `HERDR_VOICE_LOCAL_HELPER=native` runs the native Swift helper instead of Electron. Interim switch until the
+    /// backend is a menu and config choice (#6).
+    static func usesNativeHelper(_ environment: [String: String]) -> Bool {
+        environment["HERDR_VOICE_LOCAL_HELPER"] == "native"
+    }
+
+    /// `herdr-voice-local`, built next to this executable.
+    static func nativeHelper() -> URL {
+        let me = Bundle.main.executableURL ?? URL(fileURLWithPath: CommandLine.arguments[0])
+        return me.resolvingSymlinksInPath().deletingLastPathComponent().appendingPathComponent("herdr-voice-local")
     }
 
     private func verifyInventory(_ readiness: [String: Any], state: URL) throws {
