@@ -5,7 +5,8 @@
 // brain), never argv. The helper loads its models offline, runs a real speech round trip and a brain probe, binds
 // 127.0.0.1 on an ephemeral port, and prints one `ready` JSON line on stdout. It exits when stdin closes.
 //
-// `herdr-voice-local setup` downloads the models (the only time it goes online) and runs the same probes.
+// `herdr-voice-local setup` downloads the models (the only time it goes online), runs the same probes, and records that
+// setup finished. `herdr-voice-local check` runs the probes offline against what's already there.
 import Foundation
 import HerdrVoiceLocal
 
@@ -60,12 +61,17 @@ func brainFromEnvironment() -> JSONValue {
 
 @MainActor
 func run() async {
-    let setupOnly = CommandLine.arguments.dropFirst().first == "setup"
+    let command = CommandLine.arguments.dropFirst().first
+    guard command == nil || command == "setup" || command == "check" else {
+        fail("unknown command \(command!); use setup or check, or no arguments when the app starts it")
+    }
+    let fromTerminal = command != nil
     let boot: JSONValue
     do {
-        boot = setupOnly ? .object(["setup": .bool(true), "brain": brainFromEnvironment()]) : try readBootLine()
+        boot = fromTerminal ? .object(["setup": .bool(true), "brain": brainFromEnvironment()]) : try readBootLine()
     } catch { fail(error.localizedDescription) }
     let setup = boot["setup"]?.bool == true
+    let download = command == "setup" || (!fromTerminal && setup)
     let token = boot["token"]?.string ?? ""
     let tokenCharacters = CharacterSet(charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-")
     if !setup, !(32...200).contains(token.count) || !token.unicodeScalars.allSatisfy(tokenCharacters.contains) {
@@ -81,13 +87,21 @@ func run() async {
     let brainProbe: [String: Any]
     do {
         let voice = ProcessInfo.processInfo.environment["HERDR_VOICE_VOICE"].flatMap { $0.isEmpty ? nil : $0 }
-        engines = try await SpeechEngines.load(download: setup, voices: voice.map { [$0] } ?? [])
+        engines = try await SpeechEngines.load(download: download, voices: voice.map { [$0] } ?? [])
         probe = try await engines.probe()
         brainProbe = try await client.preflight()
     } catch { fail(error.localizedDescription) }
 
     if setup {
-        writeReady(["setup": true, "brain": brain.displayLabel, "brainProbe": brainProbe, "probe": probe])
+        if download {
+            let record = NativeState.setupRecord()
+            do {
+                try FileManager.default.createDirectory(at: record.deletingLastPathComponent(), withIntermediateDirectories: true)
+                let fields: [String: Any] = ["setupAt": ISO8601DateFormatter().string(from: Date()), "probe": probe]
+                try Data((jsonLine(fields) + "\n").utf8).write(to: record, options: .atomic)
+            } catch { fail("could not record setup in \(record.path): \(error.localizedDescription)") }
+        }
+        writeReady(["setup": true, "offline": !download, "brain": brain.displayLabel, "brainProbe": brainProbe, "probe": probe])
         exit(0)
     }
 

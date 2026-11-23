@@ -16,6 +16,11 @@ public struct BrainConfig: Sendable, Equatable {
         public var errorDescription: String? { if case .invalid(let detail) = self { detail } else { nil } }
     }
 
+    /// The brain when the boot record doesn't name one: Splash on its default port. Same defaults as
+    /// LocalBackend.native in HerdrVoiceCore.
+    public static let defaultURL = "http://127.0.0.1:8000/v1"
+    public static let defaultModel = "unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M"
+
     /// Validates the brain the app passed in the boot record, with the same rules as the Electron helper.
     /// The native helper speaks only the OpenAI Chat Completions protocol.
     public static func validate(_ value: JSONValue?) throws -> BrainConfig {
@@ -26,7 +31,7 @@ public struct BrainConfig: Sendable, Equatable {
         guard protocolName == "openai-chat" else {
             throw ConfigError.invalid("the native local helper supports only the openai-chat brain protocol")
         }
-        let rawURL = field("baseURL") ?? "http://127.0.0.1:11434/v1"
+        let rawURL = field("baseURL") ?? defaultURL
         guard let components = URLComponents(string: rawURL), let url = components.url,
               components.scheme == "http" || components.scheme == "https"
         else { throw ConfigError.invalid("brain URL must use HTTP(S)") }
@@ -37,7 +42,7 @@ public struct BrainConfig: Sendable, Equatable {
         if kind == .local, !["127.0.0.1", "localhost", "::1"].contains(host) {
             throw ConfigError.invalid("local brain must be loopback-only")
         }
-        let model = field("model") ?? "qwen3.5:4b"
+        let model = field("model") ?? defaultModel
         if kind == .local, model.firstMatch(#"(?i)(?:^|[-_:])cloud(?:$|[-_:])"#) != nil {
             throw ConfigError.invalid("local brain refuses cloud model names")
         }

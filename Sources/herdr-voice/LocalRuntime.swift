@@ -2,7 +2,8 @@ import Foundation
 import HerdrVoiceCore
 import Security
 
-/// One owned Electron inference host. Its session token and optional brain key travel over stdin, never argv.
+/// One owned local helper: the native `herdr-voice-local` or the Electron OpenLive host. Its session token and optional
+/// brain key travel over stdin, never argv.
 final class LocalRuntime {
     struct Ready {
         let request: URLRequest
@@ -15,7 +16,7 @@ final class LocalRuntime {
         var errorDescription: String? {
             switch self {
             case .missing(let detail), .failed(let detail): detail
-            case .timeout: "Local OpenLive WebGPU startup timed out"
+            case .timeout: "The local helper did not finish starting in time"
             }
         }
     }
@@ -25,17 +26,17 @@ final class LocalRuntime {
     private let lifecycle = NSLock()
     private var generation = 0
 
-    func prepare(environment: [String: String] = ProcessInfo.processInfo.environment,
+    func prepare(backend: LocalBackend, environment: [String: String] = ProcessInfo.processInfo.environment,
                  setup: Bool = false) throws -> Ready {
         let operation = beginPreparation()
-        let native = Self.usesNativeHelper(environment)
+        let native = backend == .native
         let executable: String
         let arguments: [String]
         if native {
             executable = Self.nativeHelper().path
             arguments = []
             guard FileManager.default.isExecutableFile(atPath: executable) else {
-                throw RuntimeError.missing("The native local helper is not built. Run swift build -c release first.")
+                throw RuntimeError.missing("The native local helper is not built. Run scripts/native-setup first.")
             }
         } else {
             let root = try Self.runtimeRoot(environment: environment)
@@ -47,7 +48,7 @@ final class LocalRuntime {
         }
         let token = try randomToken()
         let state = LocalState.directory()
-        var boot: [String: Any] = ["token": token, "stateDir": state.path, "setup": setup, "brain": try brain(environment)]
+        var boot: [String: Any] = ["token": token, "stateDir": state.path, "setup": setup, "brain": try brain(environment, backend: backend)]
         if !setup { boot.removeValue(forKey: "setup") }
         let bootData = try JSONSerialization.data(withJSONObject: boot)
 
@@ -76,7 +77,7 @@ final class LocalRuntime {
             defer { lock.unlock() }
             bytes.append(chunk)
             if bytes.count > 64 * 1024 {
-                result = .failure(RuntimeError.failed("Local OpenLive readiness output was too large"))
+                result = .failure(RuntimeError.failed("\(backend.menuTitle) readiness output was too large"))
                 ready.signal()
                 return
             }
@@ -93,16 +94,16 @@ final class LocalRuntime {
             lock.lock()
             defer { lock.unlock() }
             if result == nil {
-                result = .failure(RuntimeError.failed("Local OpenLive exited during startup (status \(process.terminationStatus))"))
+                result = .failure(RuntimeError.failed("\(backend.menuTitle) exited during startup (status \(process.terminationStatus))"))
                 ready.signal()
             }
         }
-        do { try child.run() } catch { throw RuntimeError.failed("Could not start Local OpenLive: \(error.localizedDescription)") }
+        do { try child.run() } catch { throw RuntimeError.failed("Could not start \(backend.menuTitle): \(error.localizedDescription)") }
         lifecycle.lock()
         guard generation == operation else {
             lifecycle.unlock()
             if child.isRunning { child.terminate() }
-            throw RuntimeError.failed("Local OpenLive startup was superseded by a newer provider choice")
+            throw RuntimeError.failed("\(backend.menuTitle) startup was superseded by a newer provider choice")
         }
         process = child
         input = stdin
@@ -115,7 +116,7 @@ final class LocalRuntime {
             throw RuntimeError.timeout
         }
         guard lifecycle.withLock({ generation == operation }) else {
-            throw RuntimeError.failed("Local OpenLive startup was superseded by a newer provider choice")
+            throw RuntimeError.failed("\(backend.menuTitle) startup was superseded by a newer provider choice")
         }
         stdout.fileHandleForReading.readabilityHandler = nil
         let object: [String: Any]
@@ -135,30 +136,29 @@ final class LocalRuntime {
               let label = object["brain"] as? String,
               let url = URL(string: "ws://127.0.0.1:\(port)") else {
             if setup { return Ready(request: URLRequest(url: URL(string: "ws://127.0.0.1:1")!),
-                                    label: object["brain"] as? String ?? "Local OpenLive",
+                                    label: object["brain"] as? String ?? backend.menuTitle,
                                     probe: object["probe"] as? [String: Any] ?? [:]) }
             stop(operation: operation, child: child)
-            throw RuntimeError.failed("Local OpenLive readiness omitted its loopback port")
+            throw RuntimeError.failed("\(backend.menuTitle) readiness omitted its loopback port")
         }
         var request = URLRequest(url: url)
         request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         return Ready(request: request, label: label, probe: object["probe"] as? [String: Any] ?? [:])
     }
 
-    /// Whether setup has run: Electron, the built main and the model inventory exist. Only stats files.
-    static func isBuilt(environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
-        if usesNativeHelper(environment) { return FileManager.default.isExecutableFile(atPath: nativeHelper().path) }
+    /// Whether a backend's setup has run, only stating files. Native: the helper is built and `herdr-voice-local setup`
+    /// recorded that its models downloaded and its probes passed. OpenLive: Electron, the built main and the model
+    /// inventory exist.
+    static func isReady(_ backend: LocalBackend, environment: [String: String] = ProcessInfo.processInfo.environment) -> Bool {
+        if backend == .native {
+            return FileManager.default.isExecutableFile(atPath: nativeHelper().path)
+                && FileManager.default.fileExists(atPath: LocalState.nativeSetupRecord().path)
+        }
         guard let root = try? runtimeRoot(environment: environment) else { return false }
         let files = FileManager.default
         return files.isExecutableFile(atPath: root.appendingPathComponent("node_modules/.bin/electron").path)
             && files.fileExists(atPath: root.appendingPathComponent("dist/main.mjs").path)
             && files.fileExists(atPath: LocalState.inventory(in: LocalState.directory()).path)
-    }
-
-    /// `HERDR_VOICE_LOCAL_HELPER=native` runs the native Swift helper instead of Electron. Interim switch until the
-    /// backend is a menu and config choice (#6).
-    static func usesNativeHelper(_ environment: [String: String]) -> Bool {
-        environment["HERDR_VOICE_LOCAL_HELPER"] == "native"
     }
 
     /// `herdr-voice-local`, built next to this executable.
@@ -242,13 +242,13 @@ final class LocalRuntime {
         throw RuntimeError.missing("Set HERDR_VOICE_LOCAL_OPENLIVE_DIR or run herdr-voice from its source checkout after setup.")
     }
 
-    private func brain(_ environment: [String: String]) throws -> [String: Any] {
+    private func brain(_ environment: [String: String], backend: LocalBackend) throws -> [String: Any] {
         func setting(_ name: String) -> String? {
             environment["HERDR_VOICE_LOCAL_BRAIN_\(name)"] ?? environment["HERDR_LOCAL_BRAIN_\(name)"]
         }
         let kind = setting("KIND") ?? "local"
-        let model = setting("MODEL") ?? "qwen3.5:4b"
-        let baseURL = setting("URL") ?? "http://127.0.0.1:11434/v1"
+        let model = setting("MODEL") ?? backend.defaultBrainModel
+        let baseURL = setting("URL") ?? backend.defaultBrainURL
         let protocolName = setting("PROTOCOL") ?? "openai-chat"
         guard ["openai-chat", "openai", "anthropic"].contains(protocolName) else {
             throw RuntimeError.failed("HERDR_LOCAL_BRAIN_PROTOCOL must be openai-chat, openai, or anthropic")
@@ -274,7 +274,7 @@ final class LocalRuntime {
     private func randomToken() throws -> String {
         var bytes = [UInt8](repeating: 0, count: 32)
         guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else {
-            throw RuntimeError.failed("Could not create Local OpenLive session token")
+            throw RuntimeError.failed("Could not create local session token")
         }
         return Data(bytes).base64EncodedString().replacingOccurrences(of: "+", with: "-")
             .replacingOccurrences(of: "/", with: "_").replacingOccurrences(of: "=", with: "")

@@ -13,4 +13,11 @@ public enum LocalState {
     public static func inventory(in directory: URL) -> URL {
         directory.appendingPathComponent("model-inventory.json")
     }
+
+    /// Written by `herdr-voice-local setup` once its models are downloaded and its probes pass, so the menu can tell
+    /// the native backend is set up without loading anything. Same path as NativeState.setupRecord in HerdrVoiceLocal.
+    public static func nativeSetupRecord(home: String = NSHomeDirectory()) -> URL {
+        URL(fileURLWithPath: home, isDirectory: true).standardizedFileURL
+            .appendingPathComponent(".local/state/herdr-voice/native/setup.json")
+    }
 }

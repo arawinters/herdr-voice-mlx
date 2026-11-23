@@ -5,8 +5,8 @@ I really like ChatGPT's voice agent and decided to create a version that would r
 
 **Talk to the coding agents in your [Herdr](https://herdr.dev) panes, and hear them talk back.**
 
-herdr-voice is a macOS plugin for Herdr. Local OpenLive or a realtime cloud model from xAI, OpenAI, or Google
-understands your speech. It hands the work to the Claude Code or Codex agent in a Herdr pane and tells you when the
+herdr-voice is a macOS plugin for Herdr. A local model running on your Mac, or a realtime cloud model from xAI,
+OpenAI, or Google, understands your speech. It hands the work to the Claude Code or Codex agent in a Herdr pane and tells you when the
 agent finishes or needs approval. A glowing orb in the corner of your screen shows who is talking.
 
 Watch the herdr-voice demo video below:
@@ -53,12 +53,14 @@ voice: Done. 42 tests pass; it fixed a null check in the login handler.
   aloud. That isn't just an instruction: herdr-voice caps how long a reply can run and corrects the model when it
   reads code aloud (see [How it talks](#how-it-talks)).
 - **Stop it mid-sentence.** Press `Esc` while it is talking, or just say "stop".
-- **Choice of provider and voice.** Local OpenLive (the default once it's set up), Grok (the default until then),
+- **Choice of provider and voice.** Local (the default once it's set up), Grok (the default until then),
   OpenAI or Gemini Live, and any of their voices (Eve, Rex, Ara,
   Sal, Leo, or a custom cloned voice on Grok). Switch models on the fly from the orb's right-click menu.
-- **Local OpenLive mode.** The same native mic, orb, confirmation gate, watches, recap, and 30 or 32 Swift tools can use
-  pinned OpenLive WebGPU Whisper and Kokoro speech with loopback Ollama Qwen 3.5. Local speech has no cloud-audio fees and
-  never falls back to cloud or CPU. See [Local OpenLive](docs/local-openlive.md).
+- **Local mode.** The same native mic, orb, confirmation gate, watches, recap, and 30 or 32 Swift tools can run on your
+  Mac. **Local native** does speech on the Neural Engine (Parakeet and Kokoro through FluidAudio) with a Splash brain,
+  and needs only Swift. **Local OpenLive** uses pinned OpenLive WebGPU Whisper and Kokoro speech with loopback Ollama
+  Qwen 3.5. Local speech has no cloud-audio fees and never falls back to cloud. See [Local native](docs/local-native.md)
+  and [Local OpenLive](docs/local-openlive.md).
 - **Cheap to leave running.** Only your speech is streamed (silence never leaves the Mac), quiet sessions close
   themselves, and dropped connections reconnect on their own (see [Cost](#cost)).
 - **Safe by default.** Anything that approves, sends on its own initiative, or destroys (approving an agent's prompt,
@@ -72,7 +74,23 @@ voice: Done. 42 tests pass; it fixed a null check in the login handler.
 | macOS | 14 Sonoma or later (developed on macOS 26) |
 | Swift | 5.10 or later: Xcode, or the Xcode Command Line Tools (`xcode-select --install`) |
 | Herdr | 0.9.0 or later |
-| Provider | Local OpenLive with WebGPU and Ollama, or an xAI, OpenAI, or Google API key |
+| Provider | Local native with Splash (M3 or later, macOS 26.4 or later), Local OpenLive with WebGPU and Ollama, or an xAI, OpenAI, or Google API key |
+
+## Local native quick start
+
+Local native needs only Swift and a brain serving on loopback; [Splash](https://github.com/incoai/splash) is the
+default. Until setup has finished, the menu shows **Local native (not set up)**, greyed out.
+
+```bash
+splash serve --model unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M   # leave it running
+./scripts/native-setup
+```
+
+`native-setup` builds herdr-voice and its native helper, downloads the speech models (about 630 MB, the only time
+anything is downloaded), then speaks a sentence, hears it back and probes the brain. After that, Local mode uses it by
+default, including from the installed plugin. `./scripts/native-check` repeats the checks offline. On an M5 Max it
+answers a spoken `list_agents` question in about 350 ms after you stop talking. Brain settings, backend choice and
+failure behavior are in [docs/local-native.md](docs/local-native.md).
 
 ## Local OpenLive quick start
 
@@ -132,9 +150,9 @@ Then, in any Herdr pane:
    Stop it with `herdr-voice stop`. To see the transcript, right-click the orb → **Show voice pane**.
    `herdr-voice --provider gemini` starts it with another model; `herdr-voice --here` runs it in the current pane.
 3. **Use the orb:** **click** it to mute or unmute your mic (it turns grey while muted; you still hear the voice).
-   **Right-click** it for a menu to **Show voice pane** (or **Hide voice pane**), switch the AI model (**Local OpenLive**,
-   **Grok**, **GPT** or **Gemini**) or **Quit herdr-voice**. **Local OpenLive (not set up)** is greyed out until
-   `scripts/local-openlive-setup` has built it.
+   **Right-click** it for a menu to **Show voice pane** (or **Hide voice pane**), switch the AI model (**Local native**,
+   **Local OpenLive**, **Grok**, **GPT** or **Gemini**) or **Quit herdr-voice**. A local backend shows "(not set up)",
+   greyed out, until `scripts/native-setup` or `scripts/local-openlive-setup` has run.
    Switching keeps the conversation going with the new model. To change the voice itself (Rex, Eve, ...), set
    `HERDR_VOICE_VOICE` in the settings file below.
 
@@ -343,6 +361,7 @@ an environment variable set some other way still wins.
 | Variable | Default | Purpose |
 |---|---|---|
 | `HERDR_VOICE_PROVIDER` or `--provider` | `local` once it's set up, else `grok` | `local`, `grok`, `openai` or `gemini` |
+| `HERDR_VOICE_LOCAL_BACKEND` | `native` once it's set up, else `openlive` if that is | Which helper runs Local mode: `native` or `openlive` (see [Local native](docs/local-native.md#choosing-the-backend)) |
 | `XAI_API_KEY` | | Grok key, if it isn't in the Keychain (see [API keys](#api-keys)) |
 | `OPENAI_API_KEY` | | OpenAI key, if it isn't in the Keychain |
 | `GEMINI_API_KEY` | | Gemini key, if it isn't in the Keychain |
@@ -576,7 +595,7 @@ Want the details? Ask it to show you the agent's pane ("show me claude-2") and r
 
 ```bash
 swift build          # debug build
-swift test           # 234 tests: the native local helper (session, brain stream, tool manifest, socket auth), local mode (wire, state directory, warm-up, relaunch, menu), plugin config and single-instance lock, starting agents, pane reading and watching, workspace/tab/worktree management, key setup, events, wire protocols (golden OpenAI/Grok messages, Gemini Live), Herdr tools, focus, confirmations, injection gates, shell, speech policy, activity, window pinning, reconnect, keychain, speech gate, reply scheduling, report condensing, stop phrases, model menu
+swift test           # 239 tests: the native local helper (session, brain stream, tool manifest, socket auth), local mode (wire, state directory, warm-up, relaunch, menu, backend choice), plugin config and single-instance lock, starting agents, pane reading and watching, workspace/tab/worktree management, key setup, events, wire protocols (golden OpenAI/Grok messages, Gemini Live), Herdr tools, focus, confirmations, injection gates, shell, speech policy, activity, window pinning, reconnect, keychain, speech gate, reply scheduling, report condensing, stop phrases, model menu
 swift build -c release
 herdr plugin link "$PWD"   # try your working copy as the plugin (link doesn't build: run swift build -c release first)
 ```
@@ -602,6 +621,7 @@ Sources/
     Herdr.swift          # tool schemas and herdr CLI calls, focus resolution
     Confirm.swift        # the spoken-confirmation gate shared by every risky tool
     ModelMenu.swift      # the orb's AI-model menu entries
+    LocalBackend.swift   # which helper runs Local mode (native or OpenLive), and each one's brain defaults
     Manage.swift         # list/create/rename tools for workspaces, tabs and worktrees
     StartAgent.swift     # start_agent: make a worktree, tab or workspace and start Claude or Codex in it
     Panes.swift          # list, read and watch any pane
@@ -620,7 +640,11 @@ Sources/
     Orb.swift            # floating orb
     WindowTracker.swift  # finds the Herdr window on a background queue; queries windows only while the terminal is in front
     Hotkey.swift         # global hotkeys (⌥⌘M, Esc while speaking)
+    LocalRuntime.swift   # starts and stops the local helper
+  HerdrVoiceLocal/       # the native local helper's logic, no dependencies: session, brain stream, text and audio
+  herdr-voice-local/     # the native local helper: FluidAudio speech and the loopback WebSocket
 Tests/HerdrVoiceTests/
+Tests/HerdrVoiceLocalTests/
 ```
 
 ## Cost
@@ -667,7 +691,7 @@ delta, the process scan (0.4 ms every 2 s), and `herdr` CLI calls (under 10 ms e
 | `✖ audio: ...` on start | Allow microphone access for your terminal in System Settings → Privacy & Security → Microphone, then restart |
 | `no API key for grok` | Run `herdr-voice setup grok` in a terminal (or set `XAI_API_KEY`) |
 | `herdr-voice: command not found` | Add `~/.local/bin` to your `PATH` (see [Quick start](#quick-start)), or run `.build/release/herdr-voice` from the clone |
-| A model is greyed out in the orb's menu | Local OpenLive isn't set up yet: run `scripts/local-openlive-setup`. Any other model has no key yet: `herdr-voice setup openai` or `herdr-voice setup gemini` in another terminal; the menu picks it up next time you open it |
+| A model is greyed out in the orb's menu | A local backend isn't set up yet: run `scripts/native-setup` (or `scripts/local-openlive-setup`). Any other model has no key yet: `herdr-voice setup openai` or `herdr-voice setup gemini` in another terminal; the menu picks it up next time you open it |
 | `⚠ could not register ⌥⌘M` | Another app owns that shortcut. Set `HERDR_VOICE_HOTKEY_KEYCODE`, or click the orb to mute |
 | `↻ …reconnecting` in the log | Normal: the session ended (idle or time limit) or the network dropped; it reconnects by itself (1 → 30 s backoff) |
 | `✖ …gave up after 8 tries` / red orb | Repeated failures, usually a wrong or revoked key or no network. Fix that, then press `⌥⌘M` |

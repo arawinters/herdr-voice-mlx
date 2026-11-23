@@ -1,0 +1,9 @@
+#!/bin/sh
+# Checks Local native without going online: builds, then loads the speech models in offline mode, runs the speech
+# round trip and probes the brain. Fails if setup hasn't downloaded the models.
+set -eu
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "${repo_root}"
+swift build -c release
+.build/release/herdr-voice-local check
+echo "✓ Local native works offline"

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Sets up Local native: builds herdr-voice and herdr-voice-local, downloads the speech models (the only time anything
+# is downloaded), then speaks a sentence, hears it back and probes the brain. Needs Swift and a brain already serving
+# on loopback (Splash by default); no Node, pnpm, Electron or Ollama.
+set -eu
+repo_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+cd "${repo_root}"
+command -v swift >/dev/null 2>&1 || { echo "Swift is required: install Xcode or the Command Line Tools" >&2; exit 1; }
+# Same settings, names and defaults as LocalBackend.native.
+brain_url=${HERDR_VOICE_LOCAL_BRAIN_URL:-${HERDR_LOCAL_BRAIN_URL:-http://127.0.0.1:8000/v1}}
+brain_model=${HERDR_VOICE_LOCAL_BRAIN_MODEL:-${HERDR_LOCAL_BRAIN_MODEL:-unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M}}
+echo "Using the local brain at ${brain_url} (${brain_model}); it must already be serving that model."
+swift build -c release
+.build/release/herdr-voice-local setup
+echo "✓ Local native is set up; restart herdr-voice and pick it from the orb's menu"

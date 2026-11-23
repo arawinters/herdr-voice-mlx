@@ -204,3 +204,18 @@ import Testing
         #expect(throws: PCM.AudioError.invalid) { try PCM.toPCM24([0.1][...], sampleRate: 1_000) }
     }
 }
+
+/// The helper and the app are separate targets that must agree without depending on each other.
+@Suite struct NativeBackendAgreementTests {
+    @Test func theSetupRecordIsWhereTheAppLooksForIt() {
+        #expect(NativeState.setupRecord(home: "/Users/x") == LocalState.nativeSetupRecord(home: "/Users/x"))
+    }
+
+    @Test func theHelperAndTheAppDefaultToTheSameBrain() throws {
+        #expect(BrainConfig.defaultURL == LocalBackend.native.defaultBrainURL)
+        #expect(BrainConfig.defaultModel == LocalBackend.native.defaultBrainModel)
+        let brain = try BrainConfig.validate(.object([:]))
+        #expect(brain.baseURL.absoluteString == LocalBackend.native.defaultBrainURL)
+        #expect(brain.model == LocalBackend.native.defaultBrainModel)
+    }
+}

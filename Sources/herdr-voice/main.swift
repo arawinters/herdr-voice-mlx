@@ -22,8 +22,11 @@ if let dir = ProcessInfo.processInfo.environment["HERDR_PLUGIN_CONFIG_DIR"] {
 
 let env = ProcessInfo.processInfo.environment
 let args = CommandLine.arguments
+// Which helper Local mode runs (HERDR_VOICE_LOCAL_BACKEND, else native once it's set up). The menu can switch it.
+let backendChoice = Result { try LocalBackend.choose(environment: env, isReady: { LocalRuntime.isReady($0, environment: env) }) }
+var localBackend = (try? backendChoice.get()) ?? .native
 let providerName = args.firstIndex(of: "--provider").flatMap { args.indices.contains($0 + 1) ? args[$0 + 1] : nil }
-    ?? env["HERDR_VOICE_PROVIDER"] ?? Provider.defaultChoice(localIsBuilt: LocalRuntime.isBuilt(environment: env)).rawValue
+    ?? env["HERDR_VOICE_PROVIDER"] ?? Provider.defaultChoice(localIsBuilt: LocalRuntime.isReady(localBackend, environment: env)).rawValue
 
 // One-shot commands.
 if args.count > 1 {
@@ -71,7 +74,7 @@ if args.count > 1, args[1] == "setup" {
         exit(2)
     }
     guard provider.requiresAPIKey else {
-        print("Local OpenLive is keyless; run scripts/local-openlive-setup instead.")
+        print("Local mode is keyless; set it up with scripts/native-setup (or scripts/local-openlive-setup for OpenLive).")
         exit(0)
     }
     exit(setupKey(for: provider) ? 0 : 1)
@@ -171,6 +174,10 @@ if provider.requiresAPIKey, provider.apiKey(environment: env) == nil, isatty(STD
     if !setupKey(for: provider) { exit(2) }
 }
 let localRuntime = LocalRuntime()
+if provider == .local, case .failure(let error) = backendChoice {
+    FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
+    exit(2)
+}
 guard provider == .local || provider.apiKey(environment: env) != nil else {
     FileHandle.standardError.write(Data("""
     no API key for \(provider.rawValue). Add one with:
@@ -194,13 +201,18 @@ let session = Realtime(provider: provider, key: key,
                        voice: provider.voice(startedWith: startedWith, configured: env["HERDR_VOICE_VOICE"]))
 var localActivation = LocalActivation()
 
+func loadingMessage(_ backend: LocalBackend) -> String {
+    backend == .native ? "◌ loading native speech models (Parakeet, Kokoro)" : "◌ loading Local OpenLive WebGPU speech models"
+}
+
 /// Loads the local models off the main queue, so the orb shows the warm-up, then opens the session if Local
 /// is still the choice.
 func loadLocal(onFailure: @escaping (Error) -> Void) {
     let generation = localActivation.begin()
+    let backend = localBackend // read on the main queue; the menu may change it while this loads
     DispatchQueue.global(qos: .userInitiated).async {
         do {
-            let ready = try localRuntime.prepare(environment: env)
+            let ready = try localRuntime.prepare(backend: backend, environment: env)
             DispatchQueue.main.async {
                 guard localActivation.finish(generation, selected: session.provider) else { return }
                 log("● \(ready.label) ready")
@@ -216,7 +228,7 @@ func loadLocal(onFailure: @escaping (Error) -> Void) {
 }
 // A lost local connection means the helper crashed: relaunch it, backing off like any failed reconnect.
 session.relaunchLocalHelper = {
-    loadLocal { session.localRelaunchFailed("Local OpenLive relaunch failed: \($0.localizedDescription)") }
+    loadLocal { session.localRelaunchFailed("\(localBackend.menuTitle) relaunch failed: \($0.localizedDescription)") }
 }
 /// The orb's right-click menu: one entry per AI model, the current one checked, ones without a key greyed out.
 /// "Show voice pane" while it's hidden behind the pane it opened next to, "Hide voice pane" while it's in view. Only when
@@ -232,16 +244,22 @@ func voicePaneChoice() -> Orb.MenuChoice? {
 }
 
 func modelChoices() -> [Orb.MenuChoice] {
-    let models = ModelMenu.entries(current: session.provider, hasKey: { $0.apiKey(environment: env) != nil },
-                                   localIsBuilt: LocalRuntime.isBuilt(environment: env))
+    let models = ModelMenu.entries(current: session.provider, currentBackend: localBackend,
+                                   hasKey: { $0.apiKey(environment: env) != nil },
+                                   localIsReady: { LocalRuntime.isReady($0, environment: env) })
     return (voicePaneChoice().map { [$0] } ?? []) + models.map { entry in
         Orb.MenuChoice(title: entry.title, checked: entry.checked, enabled: entry.enabled) {
             let voice = entry.provider.voice(startedWith: startedWith, configured: env["HERDR_VOICE_VOICE"])
-            if entry.provider == .local {
+            if entry.provider == .local, let backend = entry.backend {
+                // Another backend while Local is running replaces its helper; the conversation carries over.
+                let restart = session.provider == .local && backend != localBackend
                 // Stop the old cloud socket before model warmup, so choosing Local stops cloud mic egress immediately.
-                guard session.beginProviderSwitch(to: .local, voice: voice) else { return }
+                guard session.beginProviderSwitch(to: .local, voice: voice, title: backend.menuTitle, restart: restart)
+                else { return }
+                localBackend = backend
+                log(loadingMessage(backend))
                 loadLocal { error in
-                    log("✖ Local OpenLive failed: \(error.localizedDescription); still in Local mode with the mic offline")
+                    log("✖ \(backend.menuTitle) failed: \(error.localizedDescription); still in Local mode with the mic offline")
                 }
                 return
             }
@@ -291,9 +309,9 @@ do {
     exit(1)
 }
 if provider == .local {
-    log(LocalRuntime.usesNativeHelper(env) ? "◌ loading native speech models (Parakeet, Kokoro)" : "◌ loading Local OpenLive WebGPU speech models")
+    log(loadingMessage(localBackend))
     loadLocal { error in
-        FileHandle.standardError.write(Data("Local OpenLive failed: \(error.localizedDescription)\nNo cloud fallback was selected.\n".utf8))
+        FileHandle.standardError.write(Data("\(localBackend.menuTitle) failed: \(error.localizedDescription)\nNo cloud fallback was selected.\n".utf8))
         exit(2)
     }
 }

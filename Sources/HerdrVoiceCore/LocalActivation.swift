@@ -1,4 +1,4 @@
-/// Main-queue generation check for asynchronous Local OpenLive startup.
+/// Main-queue generation check for asynchronous local helper startup.
 /// A ready result can activate only if the user has not made a later provider choice.
 public struct LocalActivation {
     private var generation = 0
