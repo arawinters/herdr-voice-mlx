@@ -134,7 +134,7 @@ final class Realtime {
     private(set) var providerPreparing = false
     /// Local mode: the helper's connection was lost, so its port is dead and the next connect relaunches it.
     private var connectionLost = false
-    /// Relaunches the Local OpenLive helper off the main queue, then calls completeProviderSwitch with its new port,
+    /// Relaunches the local helper off the main queue, then calls completeProviderSwitch with its new port,
     /// or localRelaunchFailed.
     var relaunchLocalHelper: (() -> Void)?
     private var quietTimer: DispatchSourceTimer?
@@ -308,7 +308,7 @@ final class Realtime {
             connectionLost = false
             providerPreparing = true
             requestOverride = nil
-            log("↻ relaunching Local OpenLive")
+            log("↻ relaunching the local helper")
             return relaunchLocalHelper()
         }
         micShared.withLock { $0.midTurn = false }
@@ -640,7 +640,7 @@ final class Realtime {
             runTool(callID: callID, name: name, args: args, epoch: epoch)
         case .error(let msg):
             if provider == .local, !established {
-                log("✖ Local OpenLive handshake failed: \(msg)")
+                log("✖ local helper handshake failed: \(msg)")
                 let failed = socket
                 socket = nil
                 failed?.cancel(with: .protocolError, reason: nil)
@@ -684,9 +684,11 @@ final class Realtime {
     /// Switches to another provider from the orb's menu: the current session closes cleanly (its billing stops),
     /// the new one opens at once and gets the recap, so the conversation carries over. Tool results meant for the
     /// old session are dropped (its calls can't be answered elsewhere); agent reports still arrive in the new one.
+    /// `restart` replaces a running local session with another local backend; `title` names it in the log.
     @discardableResult
-    func beginProviderSwitch(to newProvider: Provider, voice newVoice: String) -> Bool {
-        if newProvider == provider {
+    func beginProviderSwitch(to newProvider: Provider, voice newVoice: String, title: String? = nil,
+                             restart: Bool = false) -> Bool {
+        if newProvider == provider, !restart {
             guard provider == .local, status == .disconnected else { return false }
             connection += 1 // invalidate a retry aimed at the old sidecar port
             retryPending = false
@@ -694,7 +696,7 @@ final class Realtime {
             requestOverride = nil
             return true
         }
-        log("⇄ switching to \(newProvider.menuTitle) (voice \(newVoice))")
+        log("⇄ switching to \(title ?? newProvider.menuTitle) (voice \(newVoice))")
         if let old = socket {
             socket = nil // its close must not count as a failure
             old.cancel(with: .normalClosure, reason: nil)

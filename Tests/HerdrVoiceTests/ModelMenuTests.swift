@@ -1,26 +1,51 @@
 import Testing
 @testable import HerdrVoiceCore
 
-@Test func menuListsLocalGrokGPTGeminiWithTheCurrentOneChecked() {
-    let entries = ModelMenu.entries(current: .gemini, hasKey: { _ in true }, localIsBuilt: true)
-    #expect(entries.map(\.title) == ["Local OpenLive", "Grok", "GPT", "Gemini"])
-    #expect(entries.map(\.checked) == [false, false, false, true])
+@Test func menuListsBothLocalBackendsThenGrokGPTGeminiWithTheCurrentOneChecked() {
+    let entries = ModelMenu.entries(current: .gemini, currentBackend: .native, hasKey: { _ in true }, localIsReady: { _ in true })
+    #expect(entries.map(\.title) == ["Local native", "Local OpenLive", "Grok", "GPT", "Gemini"])
+    #expect(entries.map(\.checked) == [false, false, false, false, true])
+    #expect(entries.map(\.backend) == [.native, .openlive, nil, nil, nil])
     #expect(entries.allSatisfy { $0.enabled })
 }
 
-@Test func modelsWithoutAKeyAreShownButDisabled() {
-    let entries = ModelMenu.entries(current: .grok, hasKey: { $0 != .openai }, localIsBuilt: true)
-    #expect(entries[0] == ModelMenu.Entry(provider: .local, title: "Local OpenLive", checked: false, enabled: true))
-    #expect(entries[2] == ModelMenu.Entry(provider: .openai, title: "GPT (no key)", checked: false, enabled: false))
-    #expect(entries[1].enabled && entries[3].enabled)
+@Test func onlyTheRunningLocalBackendIsChecked() {
+    let entries = ModelMenu.entries(current: .local, currentBackend: .openlive, hasKey: { _ in true }, localIsReady: { _ in true })
+    #expect(entries.map(\.checked) == [false, true, false, false, false])
 }
 
-@Test func localOpenLiveIsShownButDisabledUntilSetUp() {
-    let built = ModelMenu.entries(current: .grok, hasKey: { _ in true }, localIsBuilt: true)
-    let unbuilt = ModelMenu.entries(current: .grok, hasKey: { _ in true }, localIsBuilt: false)
-    #expect(unbuilt[0] == ModelMenu.Entry(provider: .local, title: "Local OpenLive (not set up)", checked: false, enabled: false))
-    #expect(Array(unbuilt.dropFirst()) == Array(built.dropFirst()))
-    #expect(unbuilt.dropFirst().allSatisfy { $0.enabled })
+@Test func modelsWithoutAKeyAreShownButDisabled() {
+    let entries = ModelMenu.entries(current: .grok, currentBackend: .native, hasKey: { $0 != .openai }, localIsReady: { _ in true })
+    #expect(entries[0] == ModelMenu.Entry(provider: .local, backend: .native, title: "Local native", checked: false, enabled: true))
+    #expect(entries[3] == ModelMenu.Entry(provider: .openai, title: "GPT (no key)", checked: false, enabled: false))
+    #expect(entries[2].enabled && entries[4].enabled)
+}
+
+@Test func eachLocalBackendIsShownButDisabledUntilSetUp() {
+    let entries = ModelMenu.entries(current: .grok, currentBackend: .native, hasKey: { _ in true }, localIsReady: { $0 == .openlive })
+    #expect(entries[0] == ModelMenu.Entry(provider: .local, backend: .native, title: "Local native (not set up)",
+                                          checked: false, enabled: false))
+    #expect(entries[1] == ModelMenu.Entry(provider: .local, backend: .openlive, title: "Local OpenLive", checked: false, enabled: true))
+    #expect(entries.dropFirst(2).allSatisfy { $0.enabled })
+}
+
+@Test func theLocalBackendIsTheConfiguredOneElseNativeOnceSetUp() throws {
+    let both: (LocalBackend) -> Bool = { _ in true }, onlyOpenLive: (LocalBackend) -> Bool = { $0 == .openlive }
+    #expect(try LocalBackend.choose(environment: ["HERDR_VOICE_LOCAL_BACKEND": "openlive"], isReady: both) == .openlive)
+    #expect(try LocalBackend.choose(environment: ["HERDR_VOICE_LOCAL_BACKEND": "Native"], isReady: onlyOpenLive) == .native)
+    #expect(try LocalBackend.choose(environment: ["HERDR_VOICE_LOCAL_HELPER": "native"], isReady: onlyOpenLive) == .native)
+    #expect(try LocalBackend.choose(environment: [:], isReady: both) == .native)
+    #expect(try LocalBackend.choose(environment: [:], isReady: onlyOpenLive) == .openlive)
+    #expect(try LocalBackend.choose(environment: [:], isReady: { _ in false }) == .native)
+    #expect(throws: LocalBackend.ConfigError.self) {
+        try LocalBackend.choose(environment: ["HERDR_VOICE_LOCAL_BACKEND": "ollama"], isReady: both)
+    }
+}
+
+@Test func eachLocalBackendHasItsOwnBrainDefaults() {
+    #expect(LocalBackend.native.defaultBrainURL == "http://127.0.0.1:8000/v1")
+    #expect(LocalBackend.openlive.defaultBrainURL == "http://127.0.0.1:11434/v1")
+    #expect(LocalBackend.openlive.defaultBrainModel == "qwen3.5:4b")
 }
 
 @Test func localProviderNeedsNoAPIKey() {

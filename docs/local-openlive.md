@@ -163,26 +163,10 @@ While the voice is talking, echo cancellation still lets some of its own audio i
 level still does. If it still cuts itself off, raise `HERDR_VOICE_LOCAL_ECHO_RATIO` (for example `0.4`). If talking
 over it doesn't stop it, lower it. `HERDR_VOICE_GATE_DEBUG=1` logs mic and playback levels each time the gate opens.
 
-## Native helper (preview)
+## Local native
 
-`herdr-voice-local` replaces the Electron helper with a native Swift one. It does speech on the Neural Engine
-through FluidAudio (Parakeet TDT v2 to transcribe, Kokoro to speak; see
-[the speech engine spike](speech-engine-spike.md)) and talks to the brain directly. It speaks the same LocalWire
-protocol, keeps the same turn-taking rules, and leaves echo cancellation and spoken confirmation in the app. It
-needs no Node, pnpm, Electron or Ollama, and supports only the `openai-chat` brain protocol.
-
-```bash
-swift build -c release
-.build/release/herdr-voice-local setup     # downloads the speech models (~630 MB) and runs the probes
-export HERDR_VOICE_LOCAL_HELPER=native     # until the backend is a menu choice
-```
-
-`setup` is the only time it goes online. At runtime FluidAudio's offline mode is on, so a missing model stops
-startup instead of downloading. Before it says ready, the helper speaks a sentence, transcribes it back, and probes
-the brain. The models live in FluidAudio's default folders: `~/Library/Application Support/FluidAudio/Models` and
-`~/.cache/fluidaudio/Models`.
-
-To run the demo against it: `./scripts/local-openlive-demo --helper "$PWD/.build/release/herdr-voice-local"`.
+[Local native](local-native.md) is the other Local backend: a native Swift helper with Neural Engine speech and no
+Node, pnpm, Electron or Ollama. Once both are set up, the orb's menu switches between them.
 
 ## Latency evidence
 
@@ -220,9 +204,7 @@ A traced run of eight on the same setup (median 531 ms) splits like this:
 Speech is about two thirds of the time and the brain about a fifth. The proxy starts at the input commit, so it leaves
 out the 560 ms of silence that ends a turn.
 
-The native helper, on the same machine, brain and proxy, measured 328–381 ms (median 354 ms) over eight warm runs,
-all under 500 ms. Median stages: speech-to-text 57 ms, Splash to the first tool event 87 ms, and Kokoro's first
-sentence about 80 ms. Splash's prompt-prefix cache matters most: the request has to be byte-identical up to the
-history, so the helper serializes it with sorted keys. Before that fix, every request paid about 900 ms of prefill.
+Local native, on the same machine, brain and proxy, had a median of 354 ms; see
+[its latency section](local-native.md#latency).
 
 Vision is unsupported in the native local voice path because Herdr has no permission contract for capturing frames.

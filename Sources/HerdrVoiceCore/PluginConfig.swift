@@ -48,11 +48,15 @@ public enum PluginConfig {
     # HERDR_VOICE_ORB_PIN=0
     # Gemini Live model
     # HERDR_VOICE_GEMINI_MODEL=gemini-2.5-flash-native-audio-latest
+    # Local backend: native (Neural Engine speech, after scripts/native-setup) or openlive (Electron WebGPU, after
+    # scripts/local-openlive-setup). Default: native once it's set up. The orb's menu switches it while running.
+    # HERDR_VOICE_LOCAL_BACKEND=native
     # Local OpenLive source runtime (after scripts/local-openlive-setup)
     # HERDR_VOICE_LOCAL_OPENLIVE_DIR=/absolute/path/to/herdr-voice/local-openlive
-    # Local brain defaults: loopback Ollama /v1/chat/completions, Qwen 3.5 4B, reasoning disabled
-    # HERDR_VOICE_LOCAL_BRAIN_MODEL=qwen3.5:4b
-    # HERDR_VOICE_LOCAL_BRAIN_URL=http://127.0.0.1:11434/v1
+    # Local brain, any OpenAI-compatible /v1/chat/completions on loopback. Native defaults to Splash's port with
+    # Qwen 3.6 35B-A3B; OpenLive defaults to Ollama with Qwen 3.5 4B (qwen3.5:4b at http://127.0.0.1:11434/v1)
+    # HERDR_VOICE_LOCAL_BRAIN_MODEL=unsloth/Qwen3.6-35B-A3B-GGUF:UD-Q4_K_M
+    # HERDR_VOICE_LOCAL_BRAIN_URL=http://127.0.0.1:8000/v1
     # HERDR_VOICE_LOCAL_BRAIN_PROTOCOL=openai-chat
     # HERDR_VOICE_LOCAL_BRAIN_REASONING=none
     # Mute hotkey key code (default 46 = M, with Option+Command)

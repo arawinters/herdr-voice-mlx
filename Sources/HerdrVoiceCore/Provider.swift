@@ -12,11 +12,11 @@ public enum Provider: String, CaseIterable {
         }
     }
 
-    /// As listed in the orb's menu, in this order.
+    /// As listed in the orb's menu, in this order. Local is one entry per backend (LocalBackend.menuTitle).
     public static let menuOrder: [Provider] = [.local, .grok, .openai, .gemini]
     public var menuTitle: String {
         switch self {
-        case .local: "Local OpenLive"
+        case .local: "Local"
         case .grok: "Grok"
         case .openai: "GPT"
         case .gemini: "Gemini"
@@ -153,7 +153,7 @@ public enum Provider: String, CaseIterable {
 
     public var requiresAPIKey: Bool { self != .local }
 
-    /// The provider to start with when neither --provider nor HERDR_VOICE_PROVIDER says: Local OpenLive once it's set
+    /// The provider to start with when neither --provider nor HERDR_VOICE_PROVIDER says: Local once a backend is set
     /// up on this Mac, otherwise Grok, so a fresh install still starts on first run.
     public static func defaultChoice(localIsBuilt: Bool) -> Provider { localIsBuilt ? .local : .grok }
 }
